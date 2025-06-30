@@ -60,7 +60,7 @@ async def change_preset(_ctx: AgentCtx, chat_key: str, preset_id: int, message_t
     Args:
         chat_key: 会话ID，必须是当前会话的ID
         preset_id: 目标人设的ID
-        message_text: 对切换后的人设发送的消息或任务指令，这条消息会作为系统信息记录下来。
+        message_text: 对切换后的人设发送的消息或任务指令 例如:呜呜呜人家现在正在被欺负,请帮我教训他
 
     Returns:
         None
@@ -95,7 +95,7 @@ async def change_preset(_ctx: AgentCtx, chat_key: str, preset_id: int, message_t
     # 将任务消息作为系统消息推送到历史记录，并触发新的人设
     await message_service.push_system_message(
         chat_key=chat_key,
-        agent_messages=f"人设{old_preset_name}尝试切换到人设{new_preset.name}，并向其发送了消息：{message_text}",
+        agent_messages=f"人设{old_preset_name}尝试切换到人设{new_preset.name}\n你现在是{new_preset.name},原人设{old_preset_name}向你发送了消息：{message_text}",
         trigger_agent=True,
     )
     logger.info(f"会话 {chat_key} 的人设已从 '{old_preset_name}' 切换为 '{new_preset.name}' (ID: {preset_id})")
@@ -110,7 +110,7 @@ async def change_preset(_ctx: AgentCtx, chat_key: str, preset_id: int, message_t
 async def get_preset_info(_ctx: AgentCtx, preset_id: int) -> str:
     """
     获取详细人设信息
-
+    当人设描述模糊,无法知晓其具体身份时,可以调用此方法获取详细信息
     Args:
         preset_id: 人设ID
 
