@@ -4,6 +4,7 @@ from nekro_agent.api import core
 from nekro_agent.api.core import logger
 from nekro_agent.api.plugin import ConfigBase, NekroPlugin, SandboxMethodType
 from nekro_agent.api.schemas import AgentCtx
+from nekro_agent.core.config import config
 from nekro_agent.models.db_chat_channel import DBChatChannel
 from nekro_agent.models.db_preset import DBPreset
 from nekro_agent.services.message_service import message_service
@@ -28,7 +29,7 @@ async def change_preset_prompt_inject(_ctx: AgentCtx) -> str:
     chat_key = _ctx.chat_key
 
     # 1. 获取当前会话的人设名称
-    current_preset_name = "默认人设"
+    current_preset_name = config.AI_CHAT_PRESET_NAME
     channel = await DBChatChannel.get_or_none(chat_key=chat_key)
     if channel and channel.preset_id:
         current_preset = await DBPreset.get_or_none(id=channel.preset_id)
@@ -71,7 +72,7 @@ async def change_preset(_ctx: AgentCtx, chat_key: str, preset_id: int, message_t
         return
 
     # 获取原人设信息
-    old_preset_name = "默认人设"
+    old_preset_name = config.AI_CHAT_PRESET_NAME
     if channel.preset_id:
         old_preset = await DBPreset.get_or_none(id=channel.preset_id)
         if old_preset:
@@ -95,7 +96,7 @@ async def change_preset(_ctx: AgentCtx, chat_key: str, preset_id: int, message_t
     # 将任务消息作为系统消息推送到历史记录，并触发新的人设
     await message_service.push_system_message(
         chat_key=chat_key,
-        agent_messages=f"人设{old_preset_name}尝试切换到人设{new_preset.name}\n你现在是{new_preset.name},原人设{old_preset_name}向你发送了消息：{message_text}",
+        agent_messages=f"人设{old_preset_name}尝试切换到人设{new_preset.name}\n你现在是{new_preset.name},原人设{old_preset_name}向你发送了消息：{message_text}\n请在完成任务后切换回原人设",
         trigger_agent=True,
     )
     logger.info(f"会话 {chat_key} 的人设已从 '{old_preset_name}' 切换为 '{new_preset.name}' (ID: {preset_id})")
