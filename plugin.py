@@ -43,10 +43,10 @@ class ChangePresetConfig(ConfigBase):
     PRESET_SETTINGS: Dict[str, PresetItem] = Field(
         default_factory=dict,
         description="人设设置列表",
-        json_schema_extra=ExtraField(is_hidden=False).model_dump(),
+        json_schema_extra=ExtraField(is_hidden=True).model_dump(),
     )
     TASKS: Dict[str, str] = Field(
         default_factory=dict,
         description="人设任务列表",
-        json_schema_extra=ExtraField(is_hidden=False).model_dump(),
+        json_schema_extra=ExtraField(is_hidden=True).model_dump(),
     )
