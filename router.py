@@ -4,12 +4,14 @@
 提供管理人设配置和查看任务的Web API界面
 """
 
+import json
 import os
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Literal, Optional
 
-from fastapi import APIRouter, HTTPException
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
 from nekro_agent.core.config import config
@@ -25,6 +27,7 @@ class TriggerWordResponse(BaseModel):
     is_record: bool
     trigger_mode: Literal["contains", "equals"]
     is_trigger_llm: bool
+    is_chat_once: bool
 
 
 class TriggerWordRequest(BaseModel):
@@ -32,6 +35,7 @@ class TriggerWordRequest(BaseModel):
     is_record: bool = True
     trigger_mode: Literal["contains", "equals"] = "contains"
     is_trigger_llm: bool = False
+    is_chat_once: bool = False
 
 
 class PresetItemResponse(BaseModel):
@@ -56,7 +60,8 @@ def trigger_word_to_response(trigger_word: TriggerWord) -> TriggerWordResponse:
         content=trigger_word.content,
         is_record=trigger_word.is_record,
         trigger_mode=trigger_word.trigger_mode,
-        is_trigger_llm=trigger_word.is_trigger_llm,
+    is_trigger_llm=trigger_word.is_trigger_llm,
+    is_chat_once=trigger_word.is_chat_once,
     )
 
 
@@ -66,7 +71,8 @@ def trigger_word_request_to_model(trigger_word_request: TriggerWordRequest) -> T
         content=trigger_word_request.content,
         is_record=trigger_word_request.is_record,
         trigger_mode=trigger_word_request.trigger_mode,
-        is_trigger_llm=trigger_word_request.is_trigger_llm,
+    is_trigger_llm=trigger_word_request.is_trigger_llm,
+    is_chat_once=trigger_word_request.is_chat_once,
     )
 
 
@@ -80,6 +86,43 @@ class PresetInfo(BaseModel):
     name: str
     description: Optional[str] = None
     content: Optional[str] = None
+
+
+class PresetExportData(BaseModel):
+    """人设导出数据模型"""
+    id: Optional[int]
+    remote_id: Optional[str]
+    on_shared: bool
+    name: str
+    title: str
+    avatar: str
+    content: str
+    description: str
+    tags: str
+    ext_data: Optional[Dict] = None
+    author: str
+    create_time: str
+    update_time: str
+
+
+class PresetImportData(BaseModel):
+    """人设导入数据模型"""
+    name: str
+    title: str
+    avatar: str
+    content: str
+    description: str = ""
+    tags: str = ""
+    author: str = ""
+    ext_data: Optional[Dict] = None
+
+
+class ImportResponse(BaseModel):
+    """导入响应模型"""
+    success_count: int
+    failed_count: int
+    total_count: int
+    errors: List[str] = []
 
 
 @plugin.mount_router()
@@ -120,6 +163,9 @@ def create_router() -> APIRouter:
                             <li>PUT /preset-settings/{{preset_id}} - 更新人设配置</li>
                             <li>GET /tasks - 获取所有任务</li>
                             <li>DELETE /tasks/{{chat_key}} - 删除指定任务</li>
+                            <li>GET /export-presets - 导出所有人设</li>
+                            <li>GET /export-preset/{{preset_ids}} - 导出指定人设(支持多个ID，用逗号分隔)</li>
+                            <li>POST /import-presets - 导入人设JSON文件</li>
                         </ul>
                         <h3>调试信息</h3>
                         <p>请检查 web/index.html 文件是否在正确的位置。</p>
@@ -347,5 +393,214 @@ def create_router() -> APIRouter:
             "total_task_sessions": total_tasks,
             "total_trigger_words": trigger_words_count,
         }
+
+    @router.get("/export-presets", summary="导出所有人设")
+    async def export_all_presets():
+        """导出所有人设为JSON格式 除了ID为None的默认人设"""
+        try:
+            # 获取所有人设
+            presets = await DBPreset.all()
+            
+            export_data = []
+            for preset in presets:
+                preset_data = PresetExportData(
+                    id=preset.id,
+                    remote_id=preset.remote_id,
+                    on_shared=preset.on_shared,
+                    name=preset.name,
+                    title=preset.title,
+                    avatar=preset.avatar,
+                    content=preset.content,
+                    description=preset.description,
+                    tags=preset.tags,
+                    ext_data=preset.ext_data,
+                    author=preset.author,
+                    create_time=preset.create_time.strftime("%Y-%m-%d %H:%M:%S"),
+                    update_time=preset.update_time.strftime("%Y-%m-%d %H:%M:%S"),
+                )
+                export_data.append(preset_data.model_dump())
+            
+            # 生成文件名
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"presets_export_{timestamp}.json"
+            
+            # 创建临时文件
+            temp_dir = Path.cwd() / "temp"
+            temp_dir.mkdir(exist_ok=True)
+            file_path = temp_dir / filename
+            
+            # 写入JSON文件
+            with file_path.open("w", encoding="utf-8") as f:
+                json.dump({
+                    "export_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "total_count": len(export_data),
+                    "presets": export_data,
+                }, f, ensure_ascii=False, indent=2)
+            
+            return FileResponse(
+                path=str(file_path),
+                filename=filename,
+                media_type="application/json",
+            )
+            
+        except Exception as e:
+            logger.error(f"导出人设失败: {e}")
+            raise HTTPException(status_code=500, detail=f"导出失败: {e!s}") from e
+
+    @router.get("/export-preset/{preset_ids}", summary="导出指定人设")
+    async def export_preset(preset_ids: str):
+        """导出指定人设为JSON格式 除了ID为None的默认人设
+        
+        支持单个或多个人设ID，用逗号分隔，例如：
+        - /export-preset/1 - 导出单个人设
+        - /export-preset/1,2,3 - 导出多个人设
+        """
+        # 解析人设ID列表
+        id_list = []
+        for id_str in preset_ids.split(","):
+            id_str = id_str.strip()
+            if not id_str:
+                continue
+            try:
+                preset_id = int(id_str)
+                id_list.append(preset_id)
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=f"无效的人设ID: {id_str}") from e
+        
+        if not id_list:
+            raise HTTPException(status_code=400, detail="请提供有效的人设ID")
+        
+        # 获取指定的人设
+        presets = await DBPreset.filter(id__in=id_list).all()
+        
+        # 检查是否所有请求的人设都存在
+        found_ids = {preset.id for preset in presets}
+        missing_ids = set(id_list) - found_ids
+        if missing_ids:
+            raise HTTPException(
+                status_code=404,
+                detail=f"以下人设不存在: {', '.join(map(str, missing_ids))}",
+            )
+        
+        try:
+            # 构建导出数据
+            export_data = []
+            preset_names = []
+            for preset in presets:
+                preset_data = PresetExportData(
+                    id=preset.id,
+                    remote_id=preset.remote_id,
+                    on_shared=preset.on_shared,
+                    name=preset.name,
+                    title=preset.title,
+                    avatar=preset.avatar,
+                    content=preset.content,
+                    description=preset.description,
+                    tags=preset.tags,
+                    ext_data=preset.ext_data,
+                    author=preset.author,
+                    create_time=preset.create_time.strftime("%Y-%m-%d %H:%M:%S"),
+                    update_time=preset.update_time.strftime("%Y-%m-%d %H:%M:%S"),
+                )
+                export_data.append(preset_data.model_dump())
+                # 收集人设名称用于文件名
+                safe_name = "".join(c for c in preset.name if c.isalnum() or c in (" ", "-", "_")).rstrip()
+                preset_names.append(safe_name)
+            
+            # 生成文件名
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"presets_export_{timestamp}.json"
+            
+            # 创建临时文件
+            temp_dir = Path.cwd() / "temp"
+            temp_dir.mkdir(exist_ok=True)
+            file_path = temp_dir / filename
+            
+            # 写入JSON文件（使用与export_all_presets相同的格式）
+            with file_path.open("w", encoding="utf-8") as f:
+                json.dump({
+                    "export_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "total_count": len(export_data),
+                    "presets": export_data,
+                }, f, ensure_ascii=False, indent=2)
+            
+            return FileResponse(
+                path=str(file_path),
+                filename=filename,
+                media_type="application/json",
+            )
+            
+        except Exception as e:
+            logger.error(f"导出人设失败: {e}")
+            raise HTTPException(status_code=500, detail=f"导出失败: {e!s}") from e
+
+    @router.post("/import-presets", summary="导入人设", response_model=ImportResponse)
+    async def import_presets(file: UploadFile = File(...)):
+        """从JSON文件导入人设"""
+        # 检查文件类型
+        if not file.filename or not file.filename.endswith(".json"):
+            raise HTTPException(status_code=400, detail="只支持JSON格式文件")
+        
+        try:
+            # 读取文件内容
+            content = await file.read()
+            try:
+                data = json.loads(content.decode("utf-8"))
+            except json.JSONDecodeError as e:
+                raise HTTPException(status_code=400, detail=f"JSON格式错误: {e!s}") from e
+            
+            success_count = 0
+            failed_count = 0
+            errors = []
+            
+            # 处理导入数据
+            if "presets" in data:
+                # 批量导入格式
+                presets_data = data["presets"]
+            else:
+                # 直接是人设数组
+                raise HTTPException(status_code=400, detail="JSON格式错误")  # noqa: TRY301
+            
+            total_count = len(presets_data)
+            
+            for preset_data in presets_data:
+                try:
+                    # 验证数据格式
+                    import_data = PresetImportData(**preset_data)
+                    
+                    # 创建新人设
+                    await DBPreset.create(
+                        name=import_data.name,
+                        title=import_data.title,
+                        avatar=import_data.avatar,
+                        content=import_data.content,
+                        description=import_data.description,
+                        tags=import_data.tags,
+                        ext_data=import_data.ext_data,
+                        author=import_data.author,
+                        on_shared=False,
+                    )
+                    
+                    success_count += 1
+                    logger.info(f"成功导入人设: {import_data.name}")
+                    
+                except Exception as e:
+                    error_msg = f"导入人设失败: {e!s}"
+                    errors.append(error_msg)
+                    failed_count += 1
+                    logger.error(error_msg)
+            
+            return ImportResponse(
+                success_count=success_count,
+                failed_count=failed_count,
+                total_count=total_count,
+                errors=errors,
+            )
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"导入人设失败: {e}")
+            raise HTTPException(status_code=500, detail=f"导入失败: {e!s}") from e
 
     return router

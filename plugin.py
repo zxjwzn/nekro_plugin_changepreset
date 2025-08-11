@@ -20,7 +20,7 @@ class TriggerWord(ConfigBase):
     is_record: bool = Field(..., description="是否记录触发词到聊天记录中")
     trigger_mode: Literal["contains", "equals"] = Field(..., description="触发模式")
     is_trigger_llm: bool = Field(..., description="是否在切换人设后一并触发LLM")
-    
+    is_chat_once: bool = Field(..., description="是否在一次聊天后切换回原人设")
 
 class PresetItem(ConfigBase):
     id: Optional[str] = Field(default=None, description="人设id")

@@ -64,7 +64,7 @@ async def change_preset_prompt_inject(_ctx: AgentCtx) -> str:
         tasks = config_obj.TASKS
         current_task = tasks.get(_ctx.chat_key)
         if current_task:
-            result_parts.append(f"提示:当你认为以下信息已完成或不再需要时请使用ignore_task忽略\n当前任务: {current_task}")
+            result_parts.append(f"提示:当你认为以下的任务已完成或不再需要时请使用ignore_task忽略\n当前任务: {current_task}")
     except Exception as e:
         logger.error(f"获取任务信息失败: {e}")
     
@@ -154,7 +154,7 @@ async def change_preset(_ctx: AgentCtx, chat_key: str, preset_id: Optional[int],
     Args:
         chat_key: 会话ID
         preset_id: 目标人设的ID,传入None时获取默认人设
-        message_text: 对切换后的人设发送的消息或任务指令 例如:呜呜呜人家现在正在被欺负,请帮我教训他
+        message_text: 对切换后的人设发送的消息或任务指令,必须给出明确的任务以及切换回原人设的时机,例如: "请与用户进行一轮对话，完成后立即切换回原人设"
 
     Returns:
         str: 操作结果信息
@@ -280,7 +280,8 @@ async def on_message(_ctx: AgentCtx, chatmessage: ChatMessage) -> MsgSignal:
                 trigger_mode = trigger_word.trigger_mode
                 is_record = trigger_word.is_record
                 is_trigger_llm = trigger_word.is_trigger_llm
-                
+                is_chat_once = trigger_word.is_chat_once
+
                 # 根据触发模式检查是否匹配
                 is_matched = False
                 if trigger_mode == "contains":
@@ -305,8 +306,10 @@ async def on_message(_ctx: AgentCtx, chatmessage: ChatMessage) -> MsgSignal:
                     try:
                         if preset_id_str == "default":
                             target_preset_id = None
+                            current_preset_id = None
                         else:
                             target_preset_id = int(preset_id_str)
+                            current_preset_id = int(preset_id_str)
                     except ValueError:
                         logger.error(f"无效的人设ID: {preset_id_str}")
                         return MsgSignal.CONTINUE
@@ -335,18 +338,23 @@ async def on_message(_ctx: AgentCtx, chatmessage: ChatMessage) -> MsgSignal:
                         logger.info(f"人设切换失败: 目标人设与当前人设相同 ({current_preset.name})")
                         return MsgSignal.CONTINUE
 
+                    agent_messages = ""
                     # 发送系统消息
+                    if is_chat_once:
+                        agent_messages = f"已切换到人设: {target_preset.name} (ID: {target_preset_id})\n请在生成代码的最后一行中加上change_preset(_ck,{current_preset_id},'请以当前人设与用户进行对话,不需要主动切换回原人设,并且请使用ignore_task工具忽略这条消息')来切换回原人设"
+                    else:
+                        agent_messages = f"已切换到人设: {target_preset.name} (ID: {target_preset_id})\n"
                     if is_trigger_llm:
                         await message_service.push_system_message(
                             chat_key=_ctx.chat_key,
-                            agent_messages="",
+                            agent_messages=agent_messages,
                             trigger_agent=True,
                         )
                     else:
                         # 如果不触发LLM，则发送系统消息提示
                         await message_service.push_system_message(
                             chat_key=_ctx.chat_key,
-                            agent_messages="",
+                            agent_messages=agent_messages,
                             trigger_agent=False,
                         )  
 
