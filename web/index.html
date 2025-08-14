@@ -88,6 +88,13 @@
   /* 触发词表格中的复选列居中（第3/4/5列） */
   .table th:nth-child(3), .table th:nth-child(4), .table th:nth-child(5),
   .table td:nth-child(3), .table td:nth-child(4), .table td:nth-child(5) { text-align: center; }
+  /* 操作列按钮样式 */
+  .table td:last-child { white-space: nowrap; }
+  .table td:last-child .btn { margin-right: 4px; }
+  /* 表格内标签垂直对齐 */
+  .table .tag { vertical-align: middle; display: inline-flex; align-items: center; }
+  /* 表格内选择框样式 */
+  .table select { min-width: 100px; font-size: 12px; }
     .section { border: 1px dashed var(--border); border-radius: 10px; padding: 10px; }
     .split { display: flex; gap: 12px; align-items: center; }
     .right { margin-left: auto; }
@@ -202,12 +209,12 @@
       <table class="table">
                     <thead>
                       <tr>
-                        <th style="width:45%">内容</th>
+                        <th style="width:35%">内容</th>
                         <th style="width:15%">模式</th>
                         <th style="width:10%"><span class="th-label">记录 <span class="help" title="触发时是否将该文本记录进会话历史，便于后续上下文使用">?</span></span></th>
-                        <th style="width:15%"><span class="th-label">触发LLM <span class="help" title="切换到目标人设后，是否立即触发一次 LLM 回复">?</span></span></th>
-                        <th style="width:15%"><span class="th-label">一次后还原 <span class="help" title="触发后仅本次聊天使用该人设，随后自动恢复原人设">?</span></span></th>
-                        <th style="width:15%">操作</th>
+                        <th style="width:12%"><span class="th-label">触发LLM <span class="help" title="切换到目标人设后，是否立即触发一次 LLM 回复">?</span></span></th>
+                        <th style="width:12%"><span class="th-label">一次后还原 <span class="help" title="触发后仅本次聊天使用该人设，随后自动恢复原人设">?</span></span></th>
+                        <th style="width:16%">操作</th>
                       </tr>
                     </thead>
                     <tbody id="triggerTable"></tbody>
@@ -215,7 +222,7 @@
                       <tr>
                         <td><input type="text" id="twContent" placeholder="输入触发词" /></td>
                         <td>
-                          <select id="twMode">
+                          <select id="twMode" style="min-width:90px;">
                             <option value="contains">包含</option>
                             <option value="equals">完全匹配</option>
                           </select>
@@ -315,6 +322,7 @@
       importFile: null,
       whitelist: [],
       blacklist: [],
+      editingTriggerIndex: -1, // 正在编辑的触发词索引，-1表示没有编辑
     };
 
     function setStatBar(text) { $('#statBar').textContent = text; }
@@ -445,20 +453,85 @@
       tbody.innerHTML = '';
       state.triggers.forEach((tw, idx) => {
         const tr = document.createElement('tr');
-        tr.innerHTML = `
-          <td>${escapeHtml(tw.content)}</td>
-          <td><span class="tag">${tw.trigger_mode === 'equals' ? '完全匹配' : '包含'}</span></td>
-          <td>${tw.is_record ? '是' : '否'}</td>
-          <td>${tw.is_trigger_llm ? '<span class="tag">触发</span>' : '不触发'}</td>
-          <td>${tw.is_chat_once ? '<span class="tag">一次</span>' : '否'}</td>
-          <td>
-            <button class="btn btn-sm danger" data-idx="${idx}">删除</button>
-          </td>
-        `;
-        tr.querySelector('button')?.addEventListener('click', () => {
-          state.triggers.splice(idx, 1);
-          renderTriggers();
+        
+        // 如果当前行正在编辑，显示编辑表单
+        if (state.editingTriggerIndex === idx) {
+          tr.innerHTML = `
+            <td><input type="text" id="editTwContent" value="${escapeHtml(tw.content)}" style="width:100%" /></td>
+            <td>
+              <select id="editTwMode" style="width:100%; min-width:90px;">
+                <option value="contains" ${tw.trigger_mode === 'contains' ? 'selected' : ''}>包含</option>
+                <option value="equals" ${tw.trigger_mode === 'equals' ? 'selected' : ''}>完全匹配</option>
+              </select>
+            </td>
+            <td style="text-align:center"><input type="checkbox" id="editTwRecord" ${tw.is_record ? 'checked' : ''} /></td>
+            <td style="text-align:center"><input type="checkbox" id="editTwTriggerLLM" ${tw.is_trigger_llm ? 'checked' : ''} /></td>
+            <td style="text-align:center"><input type="checkbox" id="editTwChatOnce" ${tw.is_chat_once ? 'checked' : ''} /></td>
+            <td>
+              <button class="btn btn-sm primary" data-action="save" data-idx="${idx}">保存</button>
+              <button class="btn btn-sm" data-action="cancel" data-idx="${idx}">取消</button>
+            </td>
+          `;
+        } else {
+          // 正常显示模式
+          tr.innerHTML = `
+            <td>${escapeHtml(tw.content)}</td>
+            <td><span class="tag">${tw.trigger_mode === 'equals' ? '完全匹配' : '包含'}</span></td>
+            <td>${tw.is_record ? '是' : '否'}</td>
+            <td>${tw.is_trigger_llm ? '<span class="tag">触发</span>' : '不触发'}</td>
+            <td>${tw.is_chat_once ? '<span class="tag">一次</span>' : '否'}</td>
+            <td>
+              <button class="btn btn-sm info" data-action="edit" data-idx="${idx}">编辑</button>
+              <button class="btn btn-sm danger" data-action="delete" data-idx="${idx}">删除</button>
+            </td>
+          `;
+        }
+        
+        // 绑定事件
+        const buttons = tr.querySelectorAll('button');
+        buttons.forEach(btn => {
+          const action = btn.dataset.action;
+          const idx = parseInt(btn.dataset.idx);
+          
+          btn.addEventListener('click', () => {
+            if (action === 'edit') {
+              state.editingTriggerIndex = idx;
+              renderTriggers();
+            } else if (action === 'delete') {
+              state.triggers.splice(idx, 1);
+              state.editingTriggerIndex = -1; // 重置编辑状态
+              renderTriggers();
+            } else if (action === 'save') {
+              const content = $('#editTwContent').value.trim();
+              const mode = $('#editTwMode').value;
+              const isRecord = $('#editTwRecord').checked;
+              const isTrigger = $('#editTwTriggerLLM').checked;
+              const isChatOnce = $('#editTwChatOnce').checked;
+              
+              if (!content) {
+                showToast('请输入触发词内容', 'warning');
+                return;
+              }
+              
+              // 更新触发词
+              state.triggers[idx] = {
+                content,
+                trigger_mode: mode,
+                is_record: isRecord,
+                is_trigger_llm: isTrigger,
+                is_chat_once: isChatOnce
+              };
+              
+              state.editingTriggerIndex = -1;
+              renderTriggers();
+              showToast('触发词已更新', 'success');
+            } else if (action === 'cancel') {
+              state.editingTriggerIndex = -1;
+              renderTriggers();
+            }
+          });
         });
+        
         tbody.appendChild(tr);
       });
     }
@@ -556,6 +629,7 @@
     async function loadPresetSettingToEditor(key) {
       try {
         state.activePresetKey = key;
+        state.editingTriggerIndex = -1; // 重置编辑状态
         const setting = await api.getPresetSetting(key);
         if (!setting) {
           state.whitelist = [];
@@ -657,12 +731,16 @@
       const mode = $('#twMode').value;
       const isRecord = $('#twRecord').checked;
       const isTrigger = $('#twTriggerLLM').checked;
-  const isChatOnce = $('#twChatOnce').checked;
+      const isChatOnce = $('#twChatOnce').checked;
       if (!content) { showToast('请输入触发词内容', 'warning'); return; }
-  state.triggers.push({ content, trigger_mode: mode, is_record: isRecord, is_trigger_llm: isTrigger, is_chat_once: isChatOnce });
+      
+      // 如果正在编辑其他触发词，先取消编辑状态
+      state.editingTriggerIndex = -1;
+      
+      state.triggers.push({ content, trigger_mode: mode, is_record: isRecord, is_trigger_llm: isTrigger, is_chat_once: isChatOnce });
       $('#twContent').value = '';
       $('#twTriggerLLM').checked = false;
-  $('#twChatOnce').checked = false;
+      $('#twChatOnce').checked = false;
       renderTriggers();
     });
 
@@ -693,6 +771,7 @@
         state.whitelist = [];
         state.blacklist = [];
         $('#sessionBlock').checked = false;
+        state.editingTriggerIndex = -1; // 重置编辑状态
         state.triggers = []; renderTriggers();
         renderIdList('white');
         renderIdList('black');
