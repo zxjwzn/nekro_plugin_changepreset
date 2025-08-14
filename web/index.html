@@ -140,10 +140,10 @@
     <div class="row">
       <div class="col col-left">
         <h2>人设库</h2>
-        <input type="search" id="presetSearch" placeholder="搜索人设（名称/描述/内容）" />
+        <input type="search" id="presetSearch" placeholder="搜索人设（名称/描述/内容/标签）" />
         <div class="toolbar small">
           <span id="presetCount">0</span> 条结果
-          <span class="right small">提示：可多选导出</span>
+          <span class="right small">提示：可多选导出 · 支持标签模糊搜索</span>
         </div>
         <div class="list" id="presetList"></div>
         <div class="toolbar">
@@ -345,6 +345,39 @@
       return arr.length ? arr : null;
     }
 
+    // 辅助函数：检查搜索词是否匹配 tags 字段
+    function matchesTags(tags, searchText) {
+      if (!tags || !searchText) return false;
+      // 将 tags 字符串按逗号分割成数组，去掉空白
+      const tagArray = tags.split(',').map(tag => tag.trim().toLowerCase()).filter(Boolean);
+      const searchLower = searchText.toLowerCase();
+      
+      // 检查是否有任何标签包含搜索文本
+      return tagArray.some(tag => tag.includes(searchLower));
+    }
+
+    // 辅助函数：渲染标签，高亮匹配的部分
+    function renderTagsWithHighlight(tags, searchText) {
+      if (!tags) return '';
+      
+      const tagArray = tags.split(',').map(tag => tag.trim()).filter(Boolean);
+      const searchLower = searchText ? searchText.toLowerCase() : '';
+      
+      return tagArray.map(tag => {
+        let tagHtml = escapeHtml(tag);
+        
+        // 如果有搜索文本且标签匹配，则高亮显示
+        if (searchLower && tag.toLowerCase().includes(searchLower)) {
+          // 创建一个安全的正则表达式，转义特殊字符
+          const escapedSearch = searchText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const regex = new RegExp(`(${escapedSearch})`, 'gi');
+          tagHtml = tagHtml.replace(regex, '<mark style="background: var(--primary); color: #052e16; padding: 1px 2px; border-radius: 2px;">$1</mark>');
+        }
+        
+        return `<span class="tag">${tagHtml}</span>`;
+      }).join(' ');
+    }
+
     function renderPresetList() {
       const list = $('#presetList');
       list.innerHTML = '';
@@ -355,7 +388,8 @@
           (p.name || '').toLowerCase().includes(q) ||
           (p.description || '').toLowerCase().includes(q) ||
           (p.content || '').toLowerCase().includes(q) ||
-          (String(p.id || '')).includes(q)
+          (String(p.id || '')).includes(q) ||
+          matchesTags(p.tags, q)
         );
       });
       $('#presetCount').textContent = String(filtered.length);
@@ -363,11 +397,16 @@
         const keyById = p.id != null ? String(p.id) : '';
         const item = document.createElement('div');
         item.className = 'item';
+        
+        // 渲染标签（如果存在），带高亮效果
+        const tagsHtml = p.tags ? renderTagsWithHighlight(p.tags, state.searchText.trim()) : '';
+        
         item.innerHTML = `
           <div class="split">
             <div>
               <div class="title">${escapeHtml(p.name || '(未命名)')}</div>
               <div class="meta">ID: ${p.id ?? 'default'}${p.description ? ' · ' + escapeHtml(p.description) : ''}</div>
+              ${tagsHtml ? `<div class="meta" style="margin-top:4px">${tagsHtml}</div>` : ''}
             </div>
             <div class="right split">
               <input type="checkbox" ${state.selectedPresetKeys.has(keyById) ? 'checked' : ''} ${keyById ? '' : 'disabled'} style="margin-right:8px" />
@@ -715,7 +754,8 @@
           (p.name || '').toLowerCase().includes(q) ||
           (p.description || '').toLowerCase().includes(q) ||
           (p.content || '').toLowerCase().includes(q) ||
-          (String(p.id || '')).includes(q)
+          (String(p.id || '')).includes(q) ||
+          matchesTags(p.tags, q)
         );
       });
       filtered.forEach(p => { if (p.id != null) state.selectedPresetKeys.add(String(p.id)); });

@@ -86,6 +86,7 @@ class PresetInfo(BaseModel):
     name: str
     description: Optional[str] = None
     content: Optional[str] = None
+    tags: Optional[str] = None
 
 
 class PresetExportData(BaseModel):
@@ -203,6 +204,7 @@ def create_router() -> APIRouter:
             name=config.AI_CHAT_PRESET_NAME,
             description="系统默认人设",
             content=config.AI_CHAT_PRESET_SETTING,
+            tags=None,
         ))
         
         # 添加数据库中的人设
@@ -213,6 +215,7 @@ def create_router() -> APIRouter:
                 name=preset.name,
                 description=preset.description,
                 content=preset.content,
+                tags=preset.tags,
             ))
         
         return presets
