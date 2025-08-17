@@ -431,7 +431,8 @@
         item.addEventListener('click', (e) => {
           // 避免点击复选框时重复触发
           if (e.target.type === 'checkbox') return;
-          const suggestedKey = keyById || (p.name || 'default');
+          // 当 id 为 null 时，固定使用 'default' 作为配置键，避免误用名称
+          const suggestedKey = keyById || 'default';
           $('#presetKey').value = String(suggestedKey);
           loadPresetSettingToEditor(String(suggestedKey));
           $$('#presetList .item').forEach(it => it.classList.remove('active'));
@@ -630,7 +631,21 @@
       try {
         state.activePresetKey = key;
         state.editingTriggerIndex = -1; // 重置编辑状态
-        const setting = await api.getPresetSetting(key);
+        let setting = await api.getPresetSetting(key);
+        // 兼容回退：若使用 'default' 键未获取到配置，则尝试使用默认人设名称作为旧键加载
+        if (!setting && key === 'default') {
+          const defaultPreset = state.presets.find(p => p.id == null);
+          const legacyKey = defaultPreset?.name?.trim();
+          if (legacyKey) {
+            try {
+              const legacy = await api.getPresetSetting(legacyKey);
+              if (legacy) {
+                setting = legacy;
+                showToast(`已加载旧配置键：${legacyKey}（建议保存为 default 后删除旧键）`, 'warning');
+              }
+            } catch (_) { /* ignore */ }
+          }
+        }
         if (!setting) {
           state.whitelist = [];
           state.blacklist = [];
