@@ -24,7 +24,15 @@ async def sync_all_presets_to_config() -> None:
     try:
         # 获取所有现有人设
         all_presets = await DBPreset.all()
-        
+        existing_preset_ids = {str(p.id) for p in all_presets}
+
+        # 删除不再存在的人设配置
+        # 使用 list(config_obj.PRESET_SETTINGS.keys()) 来创建一个副本进行迭代，因为不能在迭代字典时修改它
+        for preset_id_str in list(config_obj.PRESET_SETTINGS.keys()):
+            if preset_id_str != "default" and preset_id_str not in existing_preset_ids:
+                del config_obj.PRESET_SETTINGS[preset_id_str]
+                logger.info(f"删除了不再存在的人设配置 (ID: {preset_id_str})")
+
         # 检查并添加缺失的人设配置
         for preset in all_presets:
             preset_id_str = str(preset.id)
@@ -32,12 +40,12 @@ async def sync_all_presets_to_config() -> None:
                 # 为新人设创建空的配置
                 config_obj.PRESET_SETTINGS[preset_id_str] = PresetItem(id=preset_id_str)
                 logger.info(f"为人设 {preset.name} (ID: {preset_id_str}) 创建了空配置")
-        
+
         # 检查默认人设配置
         if "default" not in config_obj.PRESET_SETTINGS:
             config_obj.PRESET_SETTINGS["default"] = PresetItem(id="default")
             logger.info("为默认人设创建了空配置")
-        
+
         plugin.save_config(config_obj)
         logger.info("已同步所有人设到配置中")
     except Exception as e:
